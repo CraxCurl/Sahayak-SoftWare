@@ -243,7 +243,8 @@ class SahayakOverlay(tk.Tk):
         self.ai_engine.reset_history()
         self.set_standby_avatar()
         self.status_lbl.config(text="🛑 Standby (Say 'Sahayak')", fg="#9499B8")
-        TTSEngine.speak_async("Shifting on standby mode.")
+        standby_msg = "स्टैंडबाय मोड पर जा रहा हूँ।" if self.ai_engine.preferred_language == "hi" else "Shifting to standby mode."
+        TTSEngine.speak_async(standby_msg)
 
 
 
