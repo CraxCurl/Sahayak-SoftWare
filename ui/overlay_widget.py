@@ -35,9 +35,11 @@ class SahayakOverlay(tk.Tk):
         y = max(20, screen_height - 320)
         self.geometry(f"220x270+{x}+{y}")
 
-        # Dragging variables
+        # Dragging & Typing variables
         self._drag_start_x = 0
         self._drag_start_y = 0
+        self._has_dragged = False
+        self.is_typing_input_visible = False
 
         self.ai_engine = AIEngine()
         self.continuous_listener = None
@@ -79,25 +81,27 @@ class SahayakOverlay(tk.Tk):
 
     def _build_mascot_ui(self):
         # Container frame with transparent background
-        container = tk.Frame(self, bg=TRANSPARENT_COLOR)
-        container.pack(fill="both", expand=True)
+        self.container = tk.Frame(self, bg=TRANSPARENT_COLOR)
+        self.container.pack(fill="both", expand=True)
 
         # 1. Floating Pixel-Art Robot Avatar Character (Defaults to Standby/Sleeping Avatar)
         initial_img = self.robot_sleeping_photo or self.robot_awake_photo
         if initial_img:
-            self.avatar_lbl = tk.Label(container, image=initial_img, bg=TRANSPARENT_COLOR, cursor="fleur")
+            self.avatar_lbl = tk.Label(self.container, image=initial_img, bg=TRANSPARENT_COLOR, cursor="hand2")
             self.avatar_lbl.pack(pady=(5, 0))
         else:
-            self.avatar_lbl = tk.Label(container, text="🤖", font=("Segoe UI", 64), bg=TRANSPARENT_COLOR, fg="#00F0FF")
+            self.avatar_lbl = tk.Label(self.container, text="🤖", font=("Segoe UI", 64), bg=TRANSPARENT_COLOR, fg="#00F0FF", cursor="hand2")
             self.avatar_lbl.pack(pady=10)
 
-        # Enable dragging by clicking anywhere on the robot
+        # Enable dragging & clicking on the robot face
         self.avatar_lbl.bind("<Button-1>", self._start_drag)
         self.avatar_lbl.bind("<B1-Motion>", self._on_drag)
+        self.avatar_lbl.bind("<ButtonRelease-1>", self._on_avatar_click_release)
 
         # Right-click context menu
         self.context_menu = tk.Menu(self, tearoff=0, bg="#1A1B29", fg="#F0F2FA", activebackground="#9D4EDD", activeforeground="#FFFFFF")
         self.context_menu.add_command(label="⚙️ Settings (Groq API Key)", command=self.open_settings)
+        self.context_menu.add_command(label="⌨️ Toggle Typing Input (Testing)", command=self.toggle_typing_input)
         self.context_menu.add_command(label="⏯️ Pause/Resume Listening", command=self.toggle_continuous_listening)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="✕ Exit Sahayak", command=self.on_close)
@@ -105,7 +109,7 @@ class SahayakOverlay(tk.Tk):
         self.avatar_lbl.bind("<Button-3>", self._show_context_menu)
 
         # 2. Sleek Floating Speech/Status Bubble under Robot
-        self.bubble_frame = tk.Frame(container, bg="#1A1B29", highlightbackground="#00F0FF", highlightthickness=1)
+        self.bubble_frame = tk.Frame(self.container, bg="#1A1B29", highlightbackground="#00F0FF", highlightthickness=1)
         self.bubble_frame.pack(fill="x", padx=10, pady=(2, 0))
 
         self.status_lbl = tk.Label(
@@ -119,14 +123,73 @@ class SahayakOverlay(tk.Tk):
         )
         self.status_lbl.pack(padx=6, pady=4)
 
+        # 3. [TESTING MODULE] Interactive Text Typing Input Box (Hidden by default, toggleable on face click)
+        self.input_frame = tk.Frame(self.container, bg="#1A1B29", highlightbackground="#9D4EDD", highlightthickness=1)
+        
+        self.cmd_entry = tk.Entry(
+            self.input_frame,
+            bg="#0E0F19",
+            fg="#FFFFFF",
+            insertbackground="#00F0FF",
+            font=("Segoe UI", 9),
+            relief="flat"
+        )
+        self.cmd_entry.pack(side="left", fill="x", expand=True, padx=(5, 2), pady=3)
+        self.cmd_entry.bind("<Return>", self._submit_typed_command)
+
+        self.send_btn = tk.Button(
+            self.input_frame,
+            text="➔",
+            bg="#9D4EDD",
+            fg="#FFFFFF",
+            font=("Segoe UI", 8, "bold"),
+            bd=0,
+            activebackground="#C77DFF",
+            activeforeground="#FFFFFF",
+            cursor="hand2",
+            command=self._submit_typed_command
+        )
+        self.send_btn.pack(side="right", padx=(0, 4), pady=3)
+
     def _start_drag(self, event):
         self._drag_start_x = event.x
         self._drag_start_y = event.y
+        self._has_dragged = False
 
     def _on_drag(self, event):
-        x = self.winfo_x() + (event.x - self._drag_start_x)
-        y = self.winfo_y() + (event.y - self._drag_start_y)
-        self.geometry(f"+{x}+{y}")
+        dx = abs(event.x - self._drag_start_x)
+        dy = abs(event.y - self._drag_start_y)
+        if dx > 3 or dy > 3:
+            self._has_dragged = True
+            x = self.winfo_x() + (event.x - self._drag_start_x)
+            y = self.winfo_y() + (event.y - self._drag_start_y)
+            self.geometry(f"+{x}+{y}")
+
+    def _on_avatar_click_release(self, event):
+        if not self._has_dragged:
+            self.toggle_typing_input()
+
+    def toggle_typing_input(self):
+        """Toggles typing input frame visibility for testing."""
+        curr_x = self.winfo_x()
+        curr_y = self.winfo_y()
+
+        if self.is_typing_input_visible:
+            self.input_frame.pack_forget()
+            self.is_typing_input_visible = False
+            self.geometry(f"220x270+{curr_x}+{curr_y}")
+        else:
+            self.input_frame.pack(fill="x", padx=10, pady=(4, 0))
+            self.is_typing_input_visible = True
+            self.geometry(f"220x310+{curr_x}+{curr_y}")
+            self.cmd_entry.focus_set()
+
+    def _submit_typed_command(self, event=None):
+        text = self.cmd_entry.get().strip()
+        if text:
+            self.cmd_entry.delete(0, tk.END)
+            print(f"[Testing Typing Input] Submitting: '{text}'")
+            self._process_recognized_text(text, text)
 
     def _show_context_menu(self, event):
         self.context_menu.tk_popup(event.x_root, event.y_root)
