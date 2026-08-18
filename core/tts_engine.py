@@ -46,6 +46,8 @@ def detect_language_code(text: str) -> str:
 class TTSEngine:
     _pygame_initialized = False
     is_speaking = False
+    _current_speech_id = 0
+    _lock = threading.Lock()
 
     @classmethod
     def _init_pygame(cls):
@@ -60,15 +62,24 @@ class TTSEngine:
     def speak_async(cls, text: str):
         """
         Speaks text out loud asynchronously using Microsoft Edge Neural HD Voice.
-        Pauses microphone listening during playback to prevent speaker feedback loop.
+        Allows immediate interruption if new speech or stop() is requested.
         """
         if not text or not text.strip():
             return
-        thread = threading.Thread(target=cls._speak_thread, args=(text,), daemon=True)
+        
+        # Stop any previous playback immediately
+        cls.stop()
+        
+        with cls._lock:
+            cls._current_speech_id += 1
+            speech_id = cls._current_speech_id
+
+        thread = threading.Thread(target=cls._speak_thread, args=(speech_id, text), daemon=True)
         thread.start()
 
     @classmethod
-    def _speak_thread(cls, text: str):
+    def _speak_thread(cls, speech_id: int, text: str):
+        tmp_filename = None
         try:
             cls.is_speaking = True
             cls._init_pygame()
@@ -93,37 +104,42 @@ class TTSEngine:
                 tts = gTTS(text=clean_text, lang=lang_code, slow=False)
                 tts.save(tmp_filename)
 
+            # Check if this speech task was cancelled / interrupted during audio generation
+            if speech_id != cls._current_speech_id:
+                print(f"[TTSEngine] Speech #{speech_id} cancelled prior to playback.")
+                return
+
             pygame.mixer.music.load(tmp_filename)
             pygame.mixer.music.play()
 
-            # Wait while audio plays
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.1)
+            # Wait while audio plays, checking for interruption
+            while pygame.mixer.music.get_busy() and speech_id == cls._current_speech_id:
+                time.sleep(0.05)
 
             pygame.mixer.music.unload()
-
-            try:
-                os.remove(tmp_filename)
-            except Exception:
-                pass
 
         except Exception as e:
             print(f"[TTSEngine Exception] Speech output error: {e}")
         finally:
-            # Re-enable microphone listening after speech ends + 0.6s echo delay
-            time.sleep(0.6)
-            cls.is_speaking = False
+            if tmp_filename and os.path.exists(tmp_filename):
+                try:
+                    os.remove(tmp_filename)
+                except Exception:
+                    pass
+            if speech_id == cls._current_speech_id:
+                cls.is_speaking = False
 
     @classmethod
     def stop(cls):
-        """Immediately stops all TTS audio playback mid-sentence."""
+        """Immediately stops all TTS audio playback mid-sentence and cancels active generation."""
+        with cls._lock:
+            cls._current_speech_id += 1
+        cls.is_speaking = False
         try:
             if cls._pygame_initialized and pygame.mixer.music.get_busy():
                 pygame.mixer.music.stop()
                 pygame.mixer.music.unload()
         except Exception as e:
             print(f"[TTSEngine Warning] Stop speech failed: {e}")
-        finally:
-            cls.is_speaking = False
 
 

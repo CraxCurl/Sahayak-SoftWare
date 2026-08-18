@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -18,14 +19,20 @@ class SahayakOverlay(tk.Tk):
         self.title("Sahayak AI Mascot")
         self.geometry("220x270")
 
-        # Make window frameless, always-on-top, and 100% background transparent
+        # Make window frameless, always-on-top, and background transparent
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.config(bg=TRANSPARENT_COLOR)
-        try:
-            self.wm_attributes("-transparentcolor", TRANSPARENT_COLOR)
-        except Exception as e:
-            print(f"[UI Warning] Transparent color setting error: {e}")
+        if sys.platform.startswith("win"):
+            try:
+                self.wm_attributes("-transparentcolor", TRANSPARENT_COLOR)
+            except Exception:
+                pass
+        elif sys.platform == "darwin":
+            try:
+                self.attributes("-alpha", 0.95)
+            except Exception:
+                pass
 
         # Position at bottom-right corner of desktop screen
         self.update_idletasks()
@@ -229,7 +236,7 @@ class SahayakOverlay(tk.Tk):
             else:
                 color = "#00F0FF"
                 self.after(0, lambda: self.set_standby_avatar())
-            self.after(0, lambda: self.status_lbl.config(text=f"{state_text[:22]}", fg=color))
+            self.after(0, lambda: self.status_lbl.config(text=state_text, fg=color))
 
     def _on_wake_word_command(self, full_transcript, command_text):
         self.after(0, lambda: self.set_awake_avatar())
