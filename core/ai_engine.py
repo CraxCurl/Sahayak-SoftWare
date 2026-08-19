@@ -29,7 +29,7 @@ JSON FORMAT SCHEMA:
 {{
   "reply": "Clear response with action suggestion or form prompt if needed",
   "action": {{
-    "type": "open_url" | "open_portal" | "guided_flow" | "scroll" | "press_key" | "type_input" | "navigate_browser" | "click_screen" | "search_web" | "open_app" | "browser_agent" | "none",
+    "type": "open_url" | "open_portal" | "guided_flow" | "fill_demo_form" | "scroll" | "press_key" | "type_input" | "navigate_browser" | "click_screen" | "search_web" | "open_app" | "browser_agent" | "none",
     "params": {{ ... }}
   }}
 }}
@@ -97,6 +97,10 @@ class AIEngine:
         """
         lower_text = user_text.lower().strip()
 
+        # 0. If user says 'chuno', 'choose', 'chus', 'select', 'popup', 'button', 'irctc' -> skip voice language switch
+        if any(w in lower_text for w in ["chuno", "chun", "choose", "chus", "select", "popup", "button", "irctc", "selete"]):
+            return None, user_text
+
         # 1. English Switch Patterns
         en_patterns = [
             r'\b(?:please\s+)?(?:speak|talk|reply|respond|answer|chat)\s+(?:in|only\s+in)\s+english\b',
@@ -106,7 +110,7 @@ class AIEngine:
             r'\benglish\s+(?:mein?|me)\s+(?:bolo|baat\s+karo|jawab\s+do|baat\s+karein)\b',
             r'\b(?:shuddh|pure)?\s*english\s+(?:mein?|me)\s+(?:bolo|baat\s+karo)\b',
             r'\b(?:अंग्रेजी|इंग्लिश)\s*में\s*(?:बोलो|बात\s*करो|जवाब\s*दो)\b',
-            r'^(?:speak\s+english|talk\s+english|only\s+english|english\s+please)$'
+            r'^(?:speak\s+english|talk\s+english|only\s+speak\s+english|speak\s+only\s+english)$'
         ]
 
         # 2. Hindi Switch Patterns
@@ -119,7 +123,7 @@ class AIEngine:
             r'\b(?:shuddh|pure|shudh)\s+hindi\s+(?:mein?|me)?\s*(?:bolo|baat\s+karo)?\b',
             r'\b(?:हिंदी|हिन्दी)\s*में\s*(?:बोलो|बात\s*करो|जवाब\s*दो)\b',
             r'\bशुद्ध\s*(?:हिंदी|हिन्दी)\s*(?:में\s*(?:बोलो|बात\s*करो))?\b',
-            r'^(?:speak\s+hindi|talk\s+hindi|only\s+hindi|hindi\s+please)$'
+            r'^(?:speak\s+hindi|talk\s+hindi|only\s+speak\s+hindi|speak\s+only\s+hindi)$'
         ]
 
         # 3. Auto / Reset Mode Patterns
@@ -343,17 +347,102 @@ class AIEngine:
 
         return None
 
+    def _extract_demo_form_details(self, text: str) -> dict | None:
+        """Extracts user profile fields (first name, last name, age, state) for browser automation demo."""
+        lower = text.lower()
+        has_name_kw = "first name" in lower or "last name" in lower or "name is" in lower or "naam" in lower or "नाम" in lower
+        has_age_kw = "age" in lower or "years old" in lower or "saal" in lower or "umar" in lower or "उम्र" in lower
+        has_state_kw = "from" in lower or "state" in lower or "bihar" in lower or "rajya" in lower or "राज्य" in lower
+
+        if (has_name_kw and (has_age_kw or has_state_kw)) or ("first name" in lower and "last name" in lower) or ("arpit" in lower and "raj" in lower):
+            fn = "Arpit"
+            ln = "Raj"
+            age = "20"
+            state = "Bihar"
+
+            m_fn = re.search(r'(?:first\s+name\s*(?:is|=|:)?\s*|naam\s*(?:is|=|:)?\s*|नाम\s*(?:है|=|:)?\s*)([a-zA-Z\u0900-\u097F]+)', text, re.IGNORECASE)
+            if m_fn:
+                fn = m_fn.group(1).capitalize()
+
+            m_ln = re.search(r'(?:last\s+name\s*(?:is|=|:)?\s*|surname\s*(?:is|=|:)?\s*)([a-zA-Z\u0900-\u097F]+)', text, re.IGNORECASE)
+            if m_ln:
+                ln = m_ln.group(1).capitalize()
+
+            m_ag = re.search(r'(?:age\s*(?:is|=|:)?\s*|umar\s*(?:is|=|:)?\s*|उम्र\s*(?:है|=|:)?\s*)(\d+)', text, re.IGNORECASE)
+            if m_ag:
+                age = m_ag.group(1)
+            else:
+                m_ag_num = re.search(r'\b(\d{1,3})\s*(?:years|yr|saal|साल)?\s*(?:old|ka|ki)?\b', text, re.IGNORECASE)
+                if m_ag_num and int(m_ag_num.group(1)) <= 120:
+                    age = m_ag_num.group(1)
+
+            m_st = re.search(r'(?:from\s+(?:state\s+)?|state\s*(?:is|=|:)?\s*|rajya\s*(?:is|=|:)?\s*|राज्य\s*(?:है|=|:)?\s*)([a-zA-Z\u0900-\u097F]+)', text, re.IGNORECASE)
+            if m_st:
+                state = m_st.group(1).capitalize()
+
+            return {"first_name": fn, "last_name": ln, "age": age, "state": state}
+
+        return None
+
     def _check_heuristics(self, user_text: str) -> dict | None:
         """Instant heuristic matching for web interactions, portals, and apps with full localization."""
         lower_text = user_text.lower().strip()
 
-        # 1. Web interaction voice shortcuts & Language Popups on Webpages
-        if any(w in lower_text for w in ["select english", "choose english", "english on popup", "popup english", "english button"]):
-            reply = self._localize("Selecting English language on popup.", "वेबसाइट पर इंग्लिश भाषा चुन रहा हूँ।", user_text)
-            return {"reply": reply, "action": {"type": "select_language", "params": {"lang": "english"}}}
-        elif any(w in lower_text for w in ["select hindi", "choose hindi", "hindi on popup", "popup hindi", "hindi button"]):
-            reply = self._localize("Selecting Hindi language on popup.", "वेबसाइट पर हिंदी भाषा चुन रहा हूँ।", user_text)
-            return {"reply": reply, "action": {"type": "select_language", "params": {"lang": "hindi"}}}
+        # 0. Sahayak Demo Website & Automated Form Filling
+        if any(w in lower_text for w in ["open demo", "demo website", "demo portal", "demo page", "demo site", "sahayak demo", "डेमो वेबसाइट", "डेमो खोल"]):
+            en_reply = "Opening demo website. Please tell me your details like first name, last name, age, and state."
+            hi_reply = "डेमो वेबसाइट खोल रहा हूँ। कृपया अपना विवरण जैसे नाम, उम्र और राज्य बताएं।"
+            return {
+                "reply": self._localize(en_reply, hi_reply, user_text),
+                "action": {"type": "open_url", "params": {"url": "https://omthavari2006-dev.github.io/demo/"}}
+            }
+
+        demo_details = self._extract_demo_form_details(user_text)
+        if demo_details:
+            fn = demo_details["first_name"]
+            ln = demo_details["last_name"]
+            age = demo_details["age"]
+            st = demo_details["state"]
+            en_reply = f"Filling demo form with First Name {fn}, Last Name {ln}, Age {age}, State {st}, and logging in."
+            hi_reply = f"डेमो फॉर्म भर रहा हूँ: नाम {fn} {ln}, उम्र {age}, राज्य {st} और लॉगिन कर रहा हूँ।"
+            return {
+                "reply": self._localize(en_reply, hi_reply, user_text),
+                "action": {
+                    "type": "fill_demo_form",
+                    "params": {
+                        "first_name": fn,
+                        "last_name": ln,
+                        "age": age,
+                        "state": st
+                    }
+                }
+            }
+
+        # 1. Web interaction voice shortcuts & Language Popups on Webpages (IRCTC / Websites)
+        is_voice_switch_explicit = any(w in lower_text for w in ["speak in", "talk in", "reply in", "me bolo", "mein bolo", "me baat", "mein baat", "me jawab", "mein jawab"])
+
+        if not is_voice_switch_explicit:
+            recent_context = json.dumps(self.history[-4:]).lower() if self.history else ""
+            is_recent_lang_prompt = "irctc" in recent_context or "bhasha" in recent_context or "language" in recent_context or "chunein" in recent_context or "hindi ya english" in recent_context or "portal" in recent_context
+
+            hindi_match = any(w in lower_text for w in [
+                "hindi chus", "hindi choose", "hindi chuno", "hindi chun", "hindi select", "select hindi", "choose hindi",
+                "hindi mein karo", "hindi me karo", "hindi bhasha", "hindi language", "hindi on popup", "popup hindi",
+                "hindi button", "irctc hindi", "हिंदी चुनो", "हिंदी भाषा", "हिंदी सेलेक्ट", "हिंदी"
+            ]) or (is_recent_lang_prompt and (lower_text in ["hindi", "हिंदी", "hindi me", "hindi mein", "hindi please"]))
+
+            english_match = any(w in lower_text for w in [
+                "english chus", "english choose", "english chuno", "english chun", "english select", "select english", "choose english",
+                "english mein karo", "english me karo", "english bhasha", "english language", "english on popup", "popup english",
+                "english button", "irctc english", "इंग्लिश चुनो", "इंग्लिश भाषा", "इंग्लिश सेलेक्ट", "अंग्रेजी चुनो"
+            ]) or (is_recent_lang_prompt and (lower_text in ["english", "इंग्लिश", "अंग्रेजी", "english me", "english mein", "english please"]))
+
+            if hindi_match:
+                reply = self._localize("Selecting Hindi on IRCTC and closing popup.", "IRCTC पर हिंदी भाषा चुन रहा हूँ और अलर्ट बंद कर रहा हूँ।", user_text)
+                return {"reply": reply, "action": {"type": "select_language", "params": {"lang": "hindi"}}}
+            elif english_match:
+                reply = self._localize("Selecting English on IRCTC and closing popup.", "IRCTC पर इंग्लिश भाषा चुन रहा हूँ और अलर्ट बंद कर रहा हूँ।", user_text)
+                return {"reply": reply, "action": {"type": "select_language", "params": {"lang": "english"}}}
 
         # Scrolling
         elif any(w in lower_text for w in ["scroll down", "niche scroll", "down scroll", "page down", "scroll niche", "नीचे स्क्रॉल"]):

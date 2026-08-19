@@ -2,6 +2,8 @@ import time
 import webbrowser
 import threading
 import urllib.parse
+import sys
+import subprocess
 try:
     import pyautogui
     pyautogui.FAILSAFE = False
@@ -152,42 +154,102 @@ class WebAutomation:
 
     @classmethod
     def select_language_popup(cls, lang: str):
-        """Selects Hindi or English language on IRCTC or similar web alert popups."""
+        """Selects Hindi or English language on IRCTC or similar web alert popups, and dismisses modal dialogs."""
+        lang_clean = lang.lower().strip()
+        print(f"[WebAutomation] Selecting '{lang_clean}' language on active website / IRCTC popup...")
+
+        is_hindi = "hi" in lang_clean or "hindi" in lang_clean or "हिंदी" in lang_clean
+
+        # Strategy 1: macOS AppleScript for Chrome / Safari / Edge
+        if sys.platform == "darwin":
+            target_lang_str = "हिन्दी" if is_hindi else "ENGLISH"
+            js_code = (
+                f"(function() {{"
+                f"  try {{"
+                f"    var dismissed = false;"
+                f"    var okBtns = Array.from(document.querySelectorAll('button, .btn, .ui-dialog-buttonpane button, [role=\"button\"], [aria-label*=\"Close\"], [aria-label*=\"close\"], [aria-label*=\"Dismiss\"], [aria-label*=\"dismiss\"]'));"
+                f"    for (var b of okBtns) {{"
+                f"      var t = (b.innerText || '').trim().toUpperCase();"
+                f"      if (t === 'OK' || t === 'SUBMIT' || t === 'DISMISS' || t === 'ACCEPT' || t === 'CONTINUE' || t === 'CLOSE' || t === 'AGREE' || t === 'I AGREE' || t === 'I UNDERSTAND') {{"
+                f"        b.click();"
+                f"        dismissed = true;"
+                f"        break;"
+                f"      }}"
+                f"    }}"
+                f"    var targetLang = '{target_lang_str}';"
+                f"    var links = Array.from(document.querySelectorAll('a, button, span, li, [role=\"link\"], [role=\"button\"]'));"
+                f"    for (var el of links) {{"
+                f"      var txt = (el.innerText || '').trim();"
+                f"      if (txt === targetLang || (targetLang === 'हिन्दी' && (txt === 'Hindi' || txt === 'हिंदी' || txt.indexOf('हिन्दी') !== -1)) || (targetLang === 'ENGLISH' && (txt === 'English' || txt.indexOf('ENGLISH') !== -1))) {{"
+                f"        el.click();"
+                f"        break;"
+                f"      }}"
+                f"    }}"
+                f"    return 'success';"
+                f"  }} catch(e) {{ return 'err: ' + e; }}"
+                f"}})();"
+            )
+
+            applescript = f'''
+            tell application "System Events"
+                set runningApps to name of every application process
+            end tell
+            if runningApps contains "Google Chrome" then
+                tell application "Google Chrome"
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            if URL of t contains "irctc" or URL of t contains "http" then
+                                tell t to execute javascript "{js_code}"
+                                activate
+                                return "chrome_success"
+                            end if
+                        end repeat
+                    end repeat
+                end tell
+            end if
+            if runningApps contains "Safari" then
+                tell application "Safari"
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            if URL of t contains "irctc" or URL of t contains "http" then
+                                do JavaScript "{js_code}" in t
+                                activate
+                                return "safari_success"
+                            end if
+                        end repeat
+                    end repeat
+                end tell
+            end if
+            '''
+            try:
+                res = subprocess.run(["osascript", "-e", applescript], capture_output=True, text=True, timeout=5)
+                if "success" in res.stdout:
+                    print(f"[WebAutomation] AppleScript selected language '{lang_clean}' on browser tab.")
+                    return
+            except Exception as e_as:
+                print(f"[WebAutomation Warning] AppleScript language selection note: {e_as}")
+
+        # Strategy 2: PyAutoGUI keyboard & screen interaction
         if pyautogui:
             try:
                 sw, sh = pyautogui.size()
-                lang_clean = lang.lower().strip()
-                print(f"[WebAutomation] Selecting '{lang_clean}' language on popup...")
-
-                # 1. Focus browser window
                 cls._focus_browser_viewport()
 
-                # 2. Keyboard DOM focus navigation on modal dialog
-                pyautogui.press("tab")
-                time.sleep(0.15)
+                # Press Enter / Escape to dismiss IRCTC alert modal
+                pyautogui.press("enter")
+                time.sleep(0.2)
+                pyautogui.press("escape")
+                time.sleep(0.2)
 
-                if "english" in lang_clean or "angrezi" in lang_clean or "eng" in lang_clean:
-                    pyautogui.press("right")
-                    time.sleep(0.15)
-                    pyautogui.press("enter")
-                    time.sleep(0.2)
-                    
-                    # Multi-point screen click fallback for English button (Right side of dialog)
-                    target_x, target_y = sw // 2 + 60, sh // 2 + 120
-                    for dx, dy in [(0, 0), (-10, 0), (10, 0), (0, 10), (0, -10)]:
-                        pyautogui.click(target_x + dx, target_y + dy)
-                        time.sleep(0.03)
+                if is_hindi:
+                    # Click top right where language toggle is located
+                    for dx, dy in [(0, 0), (-10, 0), (10, 0)]:
+                        pyautogui.click(sw - 200 + dx, 120 + dy)
                 else:
-                    pyautogui.press("enter")
-                    time.sleep(0.2)
-                    
-                    # Multi-point screen click fallback for Hindi button (Left side of dialog)
-                    target_x, target_y = sw // 2 - 60, sh // 2 + 120
-                    for dx, dy in [(0, 0), (-10, 0), (10, 0), (0, 10), (0, -10)]:
-                        pyautogui.click(target_x + dx, target_y + dy)
-                        time.sleep(0.03)
+                    for dx, dy in [(0, 0), (-10, 0), (10, 0)]:
+                        pyautogui.click(sw - 120 + dx, 120 + dy)
 
-                print(f"[WebAutomation] Language button '{lang_clean}' selected successfully.")
+                print(f"[WebAutomation] Language button '{lang_clean}' selected successfully via PyAutoGUI.")
             except Exception as e:
                 print(f"[WebAutomation Error] Select language failed: {e}")
 
@@ -268,5 +330,114 @@ class WebAutomation:
                 pyautogui.click()
             except Exception as e:
                 print(f"[WebAutomation Error] Mouse click failed: {e}")
+
+    @classmethod
+    def fill_demo_form(cls, first_name: str = "Arpit", last_name: str = "Raj", age: str = "20", state: str = "Bihar") -> dict:
+        """Automates filling and submitting the Sahayak Demo Website form."""
+        thread = threading.Thread(
+            target=cls._demo_form_filler_worker,
+            args=(first_name, last_name, age, state),
+            daemon=True
+        )
+        thread.start()
+        return {"success": True, "msg": f"Automating demo form with Name: {first_name} {last_name}, Age: {age}, State: {state}."}
+
+    @classmethod
+    def _demo_form_filler_worker(cls, first_name: str, last_name: str, age: str, state: str):
+        try:
+            print(f"[WebAutomation] Starting demo form filling: {first_name} {last_name}, Age: {age}, State: {state}")
+            time.sleep(0.5)
+
+            # Strategy 1: macOS AppleScript execution (Google Chrome / Brave / Edge / Safari)
+            if sys.platform == "darwin":
+                js_code = (
+                    f"(function() {{"
+                    f"  var fn = document.getElementById('first-name'); if (fn) {{ fn.value = '{first_name}'; fn.dispatchEvent(new Event('input', {{bubbles:true}})); }}"
+                    f"  var ln = document.getElementById('last-name'); if (ln) {{ ln.value = '{last_name}'; ln.dispatchEvent(new Event('input', {{bubbles:true}})); }}"
+                    f"  var ag = document.getElementById('age'); if (ag) {{ ag.value = '{age}'; ag.dispatchEvent(new Event('input', {{bubbles:true}})); }}"
+                    f"  var st = document.getElementById('state'); if (st) {{ st.value = '{state}'; st.dispatchEvent(new Event('input', {{bubbles:true}})); }}"
+                    f"  setTimeout(function() {{"
+                    f"    var btn = document.getElementById('login-button');"
+                    f"    if (btn) btn.click();"
+                    f"    else {{ var form = document.getElementById('demo-form'); if (form) form.submit(); }}"
+                    f"  }}, 350);"
+                    f"}})();"
+                )
+
+                applescript = f'''
+                tell application "System Events"
+                    set runningApps to name of every application process
+                end tell
+                if runningApps contains "Google Chrome" then
+                    tell application "Google Chrome"
+                        repeat with w in windows
+                            repeat with t in tabs of w
+                                if URL of t contains "demo" then
+                                    tell t to execute javascript "{js_code}"
+                                    return "chrome_success"
+                                end if
+                            end repeat
+                        end repeat
+                    end tell
+                end if
+                if runningApps contains "Safari" then
+                    tell application "Safari"
+                        repeat with w in windows
+                            repeat with t in tabs of w
+                                if URL of t contains "demo" then
+                                    do JavaScript "{js_code}" in t
+                                    return "safari_success"
+                                end if
+                            end repeat
+                        end repeat
+                    end tell
+                end if
+                '''
+                try:
+                    res = subprocess.run(["osascript", "-e", applescript], capture_output=True, text=True, timeout=5)
+                    if "success" in res.stdout:
+                        print(f"[WebAutomation] AppleScript automated form successfully: {res.stdout.strip()}")
+                        return
+                except Exception as e_as:
+                    print(f"[WebAutomation Warning] AppleScript note: {e_as}")
+
+            # Strategy 2: PyAutoGUI simulated interaction
+            if pyautogui:
+                cls._focus_browser_viewport()
+                time.sleep(0.3)
+                pyautogui.press("tab")
+                time.sleep(0.1)
+                pyautogui.write(first_name, interval=0.03)
+                time.sleep(0.1)
+                pyautogui.press("tab")
+                time.sleep(0.1)
+                pyautogui.write(last_name, interval=0.03)
+                time.sleep(0.1)
+                pyautogui.press("tab")
+                time.sleep(0.1)
+                pyautogui.write(str(age), interval=0.03)
+                time.sleep(0.1)
+                pyautogui.press("tab")
+                time.sleep(0.1)
+                pyautogui.write(state, interval=0.03)
+                time.sleep(0.1)
+                pyautogui.press("tab")
+                time.sleep(0.1)
+                pyautogui.press("enter")
+                print("[WebAutomation] Form filled via PyAutoGUI.")
+                return
+
+            # Strategy 3: Direct URL navigation fallback
+            params = urllib.parse.urlencode({
+                "firstName": first_name,
+                "lastName": last_name,
+                "age": age,
+                "state": state
+            })
+            success_url = f"https://omthavari2006-dev.github.io/demo/success.html?{params}"
+            webbrowser.open(success_url)
+
+        except Exception as e:
+            print(f"[WebAutomation Exception] Demo form filling error: {e}")
 
 

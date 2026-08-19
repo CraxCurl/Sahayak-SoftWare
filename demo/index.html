@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sahayak Automation Demo</title>
+  <meta name="description" content="A simple and clean demo website for showcasing Sahayak AI browser automation capabilities.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app-container">
+    <div class="card">
+      <!-- Header -->
+      <header class="header-section">
+        <div class="brand-badge">
+          <span class="pulse-dot"></span>
+          <span>Sahayak AI</span>
+        </div>
+        <h1 class="main-title">Sahayak Automation Demo</h1>
+        <p class="subtitle">Demonstrating AI-powered browser automation</p>
+      </header>
+
+      <!-- Registration / Login Form -->
+      <form id="demo-form" action="success.html" method="GET" novalidate>
+        <div class="form-grid">
+          <!-- First Name -->
+          <div class="form-group">
+            <label for="first-name">First Name</label>
+            <div class="input-wrapper">
+              <input 
+                type="text" 
+                id="first-name" 
+                name="firstName" 
+                placeholder="Enter first name (e.g. Arpit)" 
+                autocomplete="given-name" 
+                required
+              >
+            </div>
+            <span class="error-text" id="first-name-error">First name is required</span>
+          </div>
+
+          <!-- Last Name -->
+          <div class="form-group">
+            <label for="last-name">Last Name</label>
+            <div class="input-wrapper">
+              <input 
+                type="text" 
+                id="last-name" 
+                name="lastName" 
+                placeholder="Enter last name (e.g. Raj)" 
+                autocomplete="family-name" 
+                required
+              >
+            </div>
+            <span class="error-text" id="last-name-error">Last name is required</span>
+          </div>
+
+          <!-- Age -->
+          <div class="form-group">
+            <label for="age">Age</label>
+            <div class="input-wrapper">
+              <input 
+                type="number" 
+                id="age" 
+                name="age" 
+                placeholder="Enter age (e.g. 20)" 
+                min="1" 
+                max="120" 
+                autocomplete="off" 
+                required
+              >
+            </div>
+            <span class="error-text" id="age-error">Please enter a valid age</span>
+          </div>
+
+          <!-- State -->
+          <div class="form-group">
+            <label for="state">State</label>
+            <div class="input-wrapper">
+              <input 
+                type="text" 
+                id="state" 
+                name="state" 
+                placeholder="Enter state (e.g. Bihar)" 
+                autocomplete="address-level1" 
+                required
+              >
+            </div>
+            <span class="error-text" id="state-error">State is required</span>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="button-container">
+          <button type="submit" id="login-button" class="btn-primary">
+            <span>Login</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+              <polyline points="10 17 15 12 10 7"></polyline>
+              <line x1="15" y1="12" x2="3" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </form>
+
+      <!-- Live Automation Flow Guidance Helper -->
+      <aside class="demo-info-card" aria-label="Demo instructions">
+        <div class="demo-info-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <span>Intended Demo Flow</span>
+        </div>
+        <p class="demo-info-body">
+          Prompt: <code>"My first name is Arpit, last name is Raj, age is 20, and I am from Bihar."</code>
+          <br>
+          Sahayak will extract the fields, fill them automatically, and click <strong>Login</strong>.
+        </p>
+      </aside>
+    </div>
+
+    <footer class="footer-text">
+      Sahayak AI Browser Automation Engine &copy; 2026
+    </footer>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

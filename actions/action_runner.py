@@ -69,6 +69,12 @@ class ActionRunner:
                 date_str = params.get("date", "")
                 return WebAutomation.search_irctc_trains(from_st, to_st, date_str)
 
+            elif action_type == "fill_demo_form":
+                first_name = params.get("first_name", "Arpit")
+                last_name = params.get("last_name", "Raj")
+                age = str(params.get("age", "20"))
+                state = params.get("state", "Bihar")
+                return WebAutomation.fill_demo_form(first_name, last_name, age, state)
 
             elif action_type == "open_url":
                 url = params.get("url", "")

@@ -62,6 +62,12 @@ PORTALS = {
         "url": "https://www.irctc.co.in",
         "keywords": ["irctc", "train ticket", "railway", "train reservation"],
         "description": "Indian Railways Catering and Tourism Corporation"
+    },
+    "demo": {
+        "name": "Sahayak Automation Demo",
+        "url": "https://omthavari2006-dev.github.io/demo/",
+        "keywords": ["demo", "demo website", "automation demo", "demo portal", "demo page", "sahayak demo", "open demo", "demo site"],
+        "description": "Sahayak AI Browser Automation Demo Website"
     }
 }
 
