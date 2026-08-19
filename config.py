@@ -33,3 +33,7 @@ class Config:
         env_path = os.path.join(os.path.dirname(__file__), ".env")
         with open(env_path, "w", encoding="utf-8") as f:
             f.write(f"GROQ_API_KEY={cls.GROQ_API_KEY}\n")
+
+    @classmethod
+    def save_api_key(cls, new_key: str):
+        cls.set_api_key(new_key)

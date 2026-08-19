@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import tempfile
 import threading
@@ -13,14 +14,21 @@ WHISPER_CONTEXT_PROMPT = (
     "mobile number change, Hindi, Hinglish, English Indian command"
 )
 
+# Regex matching sentences starting with Sahayak (or greetings like 'Hey Sahayak', 'Hello Sahayak', 'Suno Sahayak')
+# Handles any punctuation like 'Sahayak?', 'Sahayak!', 'Sahayak,', etc.
+WAKE_WORD_START_REGEX = re.compile(
+    r'^(?:(?:hey|hi|hello|oye|ok|suno)\s+)?(?:sahayak|सहायक|sahayaka|sahayk|shayak|sahyak|saayak|sahaayak|shyak)(?:[^\w\s]*(?:[\s]+(.*)|$)|$)',
+    re.IGNORECASE
+)
+
 class ContinuousVoiceListenerWorker:
     """
-    Continuous background worker thread supporting stateful conversational mode:
-    1. Mutes microphone during TTS audio playback (TTSEngine.is_speaking) to prevent self-talk loops.
-    2. IDLE: Listens for wake-word 'Sahayak' (सहायक).
-    3. ACTIVE SESSION: Once activated, continues listening and responding to EVERY user sentence
-       without requiring 'Sahayak' repeatedly.
-    4. STOP: When user says 'Sahayak stop' or 'stop', switches back to IDLE.
+    Continuous background worker thread:
+    1. Actively listens for wake-word 'Sahayak' (e.g. 'Sahayak IRCTC khol do', 'Sahayak?').
+    2. Supports voice interruption (barge-in): saying 'Sahayak' or 'Stop' while assistant is speaking
+       immediately halts speech playback.
+    3. Completely ignores all other background chatter, room noise, and sentences not starting with 'Sahayak'.
+    4. Supports stop commands ('Sahayak stop', 'stop', 'sahayak ruko').
     """
     def __init__(self, on_command_detected, on_stop_command, on_listening_state_change, on_error=None):
         self.on_command_detected = on_command_detected
@@ -28,17 +36,15 @@ class ContinuousVoiceListenerWorker:
         self.on_listening_state_change = on_listening_state_change
         self.on_error = on_error
         self.is_running = False
-        self.in_active_session = False
         self.recognizer = sr.Recognizer()
 
-        self.recognizer.energy_threshold = 1000  # Higher threshold to filter ambient room noise
+        self.recognizer.energy_threshold = 1000  # Threshold to filter ambient room noise
         self.recognizer.dynamic_energy_threshold = True
         self.recognizer.dynamic_energy_adjustment_damping = 0.15
         self.recognizer.dynamic_energy_ratio = 1.6
         self.recognizer.pause_threshold = 0.8
         self.recognizer.phrase_threshold = 0.3
         self._thread = None
-
 
     def start(self):
         if not self.is_running:
@@ -48,10 +54,9 @@ class ContinuousVoiceListenerWorker:
 
     def stop(self):
         self.is_running = False
-        self.in_active_session = False
 
     def _listen_loop(self):
-        print("[ContinuousVoiceListener] Active & Listening for Wake-Word 'Sahayak'...")
+        print("[ContinuousVoiceListener] Active & Listening (Commands must start with 'Sahayak')...")
         
         # Calibrate ambient noise level ONCE on initialization
         try:
@@ -67,16 +72,10 @@ class ContinuousVoiceListenerWorker:
             "sihango", "shango", "you're welcome", "welcome"
         }
 
-
         while self.is_running:
             try:
-                # Mute mic brief moment while agent TTS is actively generating or playing audio
-                if TTSEngine.is_speaking:
-                    time.sleep(0.1)
-                    continue
-
-                state_msg = "⚡ Active Conversation (Listening...)" if self.in_active_session else "🟢 Say 'Sahayak'..."
-                if self.on_listening_state_change:
+                state_msg = "🟢 Say 'Sahayak'..."
+                if self.on_listening_state_change and not TTSEngine.is_speaking:
                     self.on_listening_state_change(state_msg)
 
                 with sr.Microphone() as source:
@@ -85,12 +84,8 @@ class ContinuousVoiceListenerWorker:
                     except sr.WaitTimeoutError:
                         continue
 
-                # Check again if TTS started speaking during audio capture
-                if TTSEngine.is_speaking or not self.is_running:
+                if not self.is_running:
                     continue
-
-                if self.on_listening_state_change:
-                    self.on_listening_state_change("Processing speech...")
 
                 transcript = self._transcribe_audio(audio)
                 clean_text = transcript.strip().lower() if transcript else ""
@@ -99,82 +94,54 @@ class ContinuousVoiceListenerWorker:
                 if not transcript or len(clean_text) < 3 or clean_text in NOISE_FILLER_WORDS:
                     continue
 
-
-                print(f"[ContinuousVoiceListener] Heard: '{transcript}' (Active Mode: {self.in_active_session})")
+                print(f"[ContinuousVoiceListener] Heard: '{transcript}'")
                 lower_text = transcript.lower().strip()
 
-                # Check STOP triggers (strictly require wake-word 'sahayak stop' or standalone stop words)
+                # Check STOP triggers (e.g. 'sahayak stop', 'stop', 'sahayak ruko', 'ruko')
                 explicit_stop_phrases = ["sahayak stop", "stop sahayak", "ruk jao sahayak", "sahayak ruko", "sahayak bas karo", "bye sahayak", "exit sahayak"]
                 standalone_stop_words = ["stop", "ruko", "ruk jao", "bas karo", "bye"]
 
                 is_stop = (lower_text in standalone_stop_words) or any(phrase in lower_text for phrase in explicit_stop_phrases)
 
                 if is_stop:
-                    print("[ContinuousVoiceListener] 🛑 STOP command detected! Stopping speech & returning to Standby IDLE mode.")
+                    print("[ContinuousVoiceListener] 🛑 STOP / Interruption detected! Stopping speech & standing by.")
                     TTSEngine.stop()
-                    self.in_active_session = False
                     if self.on_stop_command:
                         self.on_stop_command(transcript)
-                    time.sleep(0.5)
+                    time.sleep(0.4)
                     continue
 
+                # Check if the sentence STARTS with 'Sahayak'
+                match = WAKE_WORD_START_REGEX.match(transcript.strip())
 
+                if match:
+                    # If assistant was currently speaking, interrupt it immediately!
+                    if TTSEngine.is_speaking:
+                        print("[ContinuousVoiceListener] ⚡ Interruption triggered! Cutting off active speech.")
+                        TTSEngine.stop()
 
-                wake_words = ["sahayak", "सहायक", "sahayaka", "sahayk", "shayak", "sahyak", "saayak", "sahaayak"]
-                has_wake_word = any(w in lower_text for w in wake_words)
-
-                if self.in_active_session:
-                    # Already in active conversation: ANY user input is processed
-                    command_text = self._clean_transcript(transcript)
-                    print(f"[ContinuousVoiceListener] 🗣️ Active Conversation Command: '{command_text}'")
+                    command_part = match.group(1).strip() if match.group(1) else ""
+                    command_text = command_part if command_part else "Hello Sahayak"
+                    
+                    print(f"[ContinuousVoiceListener] ⚡ Wake Word Triggered! Command: '{command_text}'")
                     if self.on_command_detected:
                         self.on_command_detected(transcript, command_text)
-                    time.sleep(1.5)
-
-                elif has_wake_word:
-                    # Wake word detected: Enter Active Session!
-                    self.in_active_session = True
-                    command_text = self._extract_command(transcript)
-                    print(f"[ContinuousVoiceListener] ⚡ Wake Word Triggered! Session ACTIVE. Command: '{command_text}'")
-                    if self.on_command_detected:
-                        self.on_command_detected(transcript, command_text)
-                    time.sleep(1.5)
+                    time.sleep(1.0)
+                else:
+                    # Sentence does NOT start with 'Sahayak' -> Ignore completely!
+                    print(f"[ContinuousVoiceListener] 🔇 Ignored (Sentence did not start with 'Sahayak'): '{transcript}'")
 
             except Exception as e:
                 print(f"[ContinuousVoiceListener Exception] {e}")
                 time.sleep(1.0)
 
-    def _clean_transcript(self, transcript: str) -> str:
-        """Cleans wake word prefixes if user repeated it in active mode."""
-        lower = transcript.lower()
-        wake_words = ["sahayak", "सहायक", "sahayaka", "sahayk", "shayak", "sahyak", "saayak", "sahaayak"]
-        for w in wake_words:
-            if lower.startswith(w):
-                return transcript[len(w):].strip(" ,:.-")
-        return transcript.strip()
-
     def _extract_command(self, transcript: str) -> str:
-        """Extracts the command text after removing the 'Sahayak' wake word prefix/suffix."""
-        lower = transcript.lower()
-        wake_words = ["sahayak", "सहायक", "sahayaka", "sahayk", "shayak", "sahyak", "saayak", "sahaayak"]
-        
-        target_word = ""
-        target_idx = -1
-        for w in wake_words:
-            idx = lower.find(w)
-            if idx != -1 and (target_idx == -1 or idx < target_idx):
-                target_idx = idx
-                target_word = w
-
-        if target_idx != -1:
-            after_text = transcript[target_idx + len(target_word):].strip(" ,:.-")
-            if len(after_text) > 1:
-                return after_text
-            
-            before_text = transcript[:target_idx].strip(" ,:.-")
-            if len(before_text) > 1:
-                return before_text
-
+        """Extracts the command text after removing the 'Sahayak' wake word prefix."""
+        match = WAKE_WORD_START_REGEX.match(transcript.strip())
+        if match and match.group(1):
+            cmd = match.group(1).strip()
+            if len(cmd) > 1:
+                return cmd
         return "Hello Sahayak"
 
     def _transcribe_audio(self, audio) -> str:

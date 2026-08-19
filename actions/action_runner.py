@@ -4,6 +4,7 @@ import urllib.parse
 import os
 import sys
 import time
+import threading
 from actions.portal_registry import resolve_portal, PORTALS
 from core.web_automation import WebAutomation
 
@@ -131,18 +132,36 @@ class ActionRunner:
 
             elif action_type == "open_app":
                 app_name = params.get("app", "").lower()
-                if "notepad" in app_name:
-                    subprocess.Popen(["notepad.exe"])
-                    return {"success": True, "msg": "Opened Notepad."}
+                is_mac = sys.platform == "darwin"
+                is_win = sys.platform.startswith("win")
+                
+                if "notepad" in app_name or "textedit" in app_name:
+                    if is_mac:
+                        subprocess.Popen(["open", "-a", "TextEdit"])
+                    elif is_win:
+                        subprocess.Popen(["notepad.exe"])
+                    else:
+                        subprocess.Popen(["gedit"])
+                    return {"success": True, "msg": "Opened Text Editor."}
                 elif "calc" in app_name or "calculator" in app_name:
-                    subprocess.Popen(["calc.exe"])
+                    if is_mac:
+                        subprocess.Popen(["open", "-a", "Calculator"])
+                    elif is_win:
+                        subprocess.Popen(["calc.exe"])
+                    else:
+                        subprocess.Popen(["gnome-calculator"])
                     return {"success": True, "msg": "Opened Calculator."}
                 elif "chrome" in app_name or "browser" in app_name:
                     webbrowser.open("https://www.google.com")
                     return {"success": True, "msg": "Opened Web Browser."}
                 elif "cmd" in app_name or "terminal" in app_name:
-                    subprocess.Popen(["start", "cmd"], shell=True)
-                    return {"success": True, "msg": "Opened Command Prompt."}
+                    if is_mac:
+                        subprocess.Popen(["open", "-a", "Terminal"])
+                    elif is_win:
+                        subprocess.Popen(["start", "cmd"], shell=True)
+                    else:
+                        subprocess.Popen(["x-terminal-emulator"])
+                    return {"success": True, "msg": "Opened Terminal."}
                 else:
                     return {"success": False, "msg": f"Application '{app_name}' not configured."}
 
